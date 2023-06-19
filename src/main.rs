@@ -2,12 +2,9 @@ use std::fs;
 
 use anyhow::{bail, Result};
 use clap::Parser;
-use pbr::ProgressBar;
 use rand::{distributions::Alphanumeric, Rng};
-use std::io::Stdout;
+use std::io::stdout;
 use std::io::Write;
-use std::thread;
-use std::time::Duration;
 
 use human_time::ToHumanTimeString;
 
@@ -31,13 +28,14 @@ struct Args {
 fn generate_filenames(how_many: u64) -> Vec<String> {
     let mut filenames: Vec<String> = Vec::new();
     loop {
+        if filenames.len() % 1000 == 0 {
+            filenames.sort();
+            filenames.dedup();
+        }
         if filenames.len() >= how_many as usize {
             break;
         }
         let filename = get_random_filename();
-        if filenames.contains(&filename) {
-            continue;
-        }
         filenames.push(filename);
     }
     filenames
@@ -53,12 +51,7 @@ fn get_random_filename() -> String {
 
 /// Given a root directory, create a subdirectory, then fill that subdirectory
 /// with the specified number of 1B files.
-fn create_inode_dir(
-    pb: &mut ProgressBar<Stdout>,
-    root_dir: &str,
-    inodes: u64,
-    filenames: &mut Vec<String>,
-) -> Result<String> {
+fn create_inode_dir(root_dir: &str, inodes: u64, filenames: &mut Vec<String>) -> Result<String> {
     let dir_name = filenames.pop().unwrap();
     let inode_dir_path = format!("{}/{}", root_dir, &dir_name);
     if fs::metadata(&inode_dir_path).is_err() {
@@ -69,7 +62,6 @@ fn create_inode_dir(
 
     let mut created: Vec<String> = Vec::new();
     for _ in 0..inodes {
-        pb.inc();
         let filename: String;
         loop {
             let u = uuid::Uuid::new_v4().to_string();
@@ -111,8 +103,14 @@ fn main() -> Result<()> {
         }
     }
 
-    let mut filenames = generate_filenames(args.total_inodes);
+    print!("Generating unique filenames ... ");
+    stdout().flush()?;
 
+    let mut filenames = generate_filenames(args.total_inodes);
+    println!("done");
+
+    print!("Starting inode creation ... ");
+    stdout().flush()?;
     let start_time = std::time::Instant::now();
 
     // Use the root_dir as a base and recursively create subdirectories
@@ -122,30 +120,23 @@ fn main() -> Result<()> {
 
     let mut next_dir = root_dir.clone();
 
-    let mut pb = ProgressBar::new(total_inodes);
-    pb.format("╢▌▌░╟");
-
     loop {
         if current_inodes >= total_inodes {
             break;
         }
-        pb.inc();
-        thread::sleep(Duration::from_millis(200));
-        next_dir = create_inode_dir(&mut pb, &next_dir, inodes_per_dir, &mut filenames)?;
+        next_dir = create_inode_dir(&next_dir, inodes_per_dir, &mut filenames)?;
 
         current_inodes += inodes_per_dir;
     }
-    pb.finish_print("Process complete");
-    let elapsed = start_time.elapsed().as_millis();
+
+    let elapsed = start_time.elapsed();
+    println!("done");
 
     println!("Total inodes created: {}", total_inodes);
+    println!("Elapsed time: {}", elapsed.to_human_time_string());
     println!(
-        "Elapsed time: {}",
-        Duration::from_millis(elapsed as u64).to_human_time_string()
-    );
-    println!(
-        "Time per inode: {:.8}ms",
-        elapsed as f64 / 1000.0 / total_inodes as f64
+        "Time per inode: {}ns",
+        elapsed.as_micros() / total_inodes as u128
     );
 
     Ok(())
