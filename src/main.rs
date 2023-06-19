@@ -3,6 +3,7 @@ use std::fs;
 use anyhow::{bail, Result};
 use clap::Parser;
 use pbr::ProgressBar;
+use rand::{distributions::Alphanumeric, Rng};
 use std::io::Stdout;
 use std::io::Write;
 use std::thread;
@@ -27,10 +28,38 @@ struct Args {
     depth: u64,
 }
 
+fn generate_filenames(how_many: u64) -> Vec<String> {
+    let mut filenames: Vec<String> = Vec::new();
+    loop {
+        if filenames.len() >= how_many as usize {
+            break;
+        }
+        let filename = get_random_filename();
+        if filenames.contains(&filename) {
+            continue;
+        }
+        filenames.push(filename);
+    }
+    filenames
+}
+
+fn get_random_filename() -> String {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(8)
+        .map(char::from)
+        .collect()
+}
+
 /// Given a root directory, create a subdirectory, then fill that subdirectory
 /// with the specified number of 1B files.
-fn create_inode_dir(pb: &mut ProgressBar<Stdout>, root_dir: &str, inodes: u64) -> Result<String> {
-    let dir_name = uuid::Uuid::new_v4().to_string();
+fn create_inode_dir(
+    pb: &mut ProgressBar<Stdout>,
+    root_dir: &str,
+    inodes: u64,
+    filenames: &mut Vec<String>,
+) -> Result<String> {
+    let dir_name = filenames.pop().unwrap();
     let inode_dir_path = format!("{}/{}", root_dir, &dir_name);
     if fs::metadata(&inode_dir_path).is_err() {
         if fs::create_dir(&inode_dir_path).is_err() {
@@ -82,6 +111,8 @@ fn main() -> Result<()> {
         }
     }
 
+    let mut filenames = generate_filenames(args.total_inodes);
+
     let start_time = std::time::Instant::now();
 
     // Use the root_dir as a base and recursively create subdirectories
@@ -100,7 +131,7 @@ fn main() -> Result<()> {
         }
         pb.inc();
         thread::sleep(Duration::from_millis(200));
-        next_dir = create_inode_dir(&mut pb, &next_dir, inodes_per_dir)?;
+        next_dir = create_inode_dir(&mut pb, &next_dir, inodes_per_dir, &mut filenames)?;
 
         current_inodes += inodes_per_dir;
     }
@@ -108,8 +139,14 @@ fn main() -> Result<()> {
     let elapsed = start_time.elapsed().as_millis();
 
     println!("Total inodes created: {}", total_inodes);
-    println!("Elapsed time: {}", Duration::from_millis(elapsed as u64).to_human_time_string());
-    println!("Time per inode: {:.8}ms", elapsed as f64 / 1000.0 / total_inodes as f64);
+    println!(
+        "Elapsed time: {}",
+        Duration::from_millis(elapsed as u64).to_human_time_string()
+    );
+    println!(
+        "Time per inode: {:.8}ms",
+        elapsed as f64 / 1000.0 / total_inodes as f64
+    );
 
     Ok(())
 }
