@@ -96,7 +96,7 @@ fn main() -> Result<()> {
         bail!("Provided path {} does not exist", &args.path);
     }
 
-    let root_dir = format!("{}/{}", &args.path, "defendertest_data");
+    let root_dir = format!("{}/{}", &args.path, "defendertest_data.noindex");
     if fs::metadata(&root_dir).is_err() {
         if fs::create_dir(&root_dir).is_err() {
             bail!("Failed to create root directory {}", &root_dir);
